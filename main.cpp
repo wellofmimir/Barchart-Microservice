@@ -19,8 +19,9 @@
 
 #include <QChart>
 #include <QChartView>
-#include <QLineSeries>
 #include <QValueAxis>
+#include <QBarSet>
+#include <QBarSeries>
 #include <QBarCategoryAxis>
 
 #include <QWidget>
@@ -34,13 +35,13 @@ int main(int argc, char *argv[])
 {
     QApplication app {argc, argv};
 
-    QCoreApplication::setApplicationName("LineChart-Microservice");
+    QCoreApplication::setApplicationName("Barchart-Microservice");
     QCoreApplication::setApplicationVersion("1.0.0");
 
     QCommandLineParser commandlineParser;
     commandlineParser.addHelpOption();
     commandlineParser.addVersionOption();
-    commandlineParser.setApplicationDescription("Microservice for LineChart-Plotting.");
+    commandlineParser.setApplicationDescription("Microservice for BarChart-Plotting.");
     commandlineParser.process(app);
 
     if (!QFile::exists(QApplication::applicationDirPath() + QDir::separator() + "settings.ini"))
@@ -72,7 +73,7 @@ int main(int argc, char *argv[])
 
     const QScopedPointer<QHttpServer> httpServer {new QHttpServer {&app}};
 
-    httpServer->route("/line", QHttpServerRequest::Method::Post,
+    httpServer->route("/bar/upwards", QHttpServerRequest::Method::Post,
     [](const QHttpServerRequest &request) -> QFuture<QHttpServerResponse>
     {
         return QtConcurrent::run([&]()
@@ -103,7 +104,7 @@ int main(int argc, char *argv[])
                 };
             }
 
-            for (const QString &key : {"X_Start", "X_End", "Points"})
+            for (const QString &key : {"Points", "Categories"})
             {
                 if (!jsonObject.contains(key))
                 {
@@ -117,24 +118,6 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if (!jsonObject.value("X_Start").isDouble())
-                return QHttpServerResponse
-                {
-                    QJsonObject
-                    {
-                        {"Message", "Invalid data sent. JSON-Key 'X_Start' is not a double value. Please send a valid JSON-Object."}
-                    }
-                };
-
-            if (!jsonObject.value("X_End").isDouble())
-                return QHttpServerResponse
-                {
-                    QJsonObject
-                    {
-                        {"Message", "Invalid data sent. JSON-Key 'X_End' is not a double value. Please send a valid JSON-Object."}
-                    }
-                };
-
             if (!jsonObject.value("Points").isArray())
                 return QHttpServerResponse
                 {
@@ -144,12 +127,18 @@ int main(int argc, char *argv[])
                     }
                 };
 
-            const qreal xStart {jsonObject.value("X_Start").toDouble()};
-            const qreal xEnd   {jsonObject.value("X_End").toDouble()};
+            if (!jsonObject.value("Categories").isArray())
+                return QHttpServerResponse
+                {
+                    QJsonObject
+                    {
+                        {"Message", "Invalid data sent. JSON-Key 'Categories' is not an array. Please send a valid JSON-Object."}
+                    }
+                };
 
-            const QJsonArray jsonArray {jsonObject.value("Points").toArray()};
+            const QJsonArray jsonArrayPoints {jsonObject.value("Points").toArray()};
 
-            if (jsonArray.isEmpty())
+            if (jsonArrayPoints.isEmpty())
                 return QHttpServerResponse
                 {
                     QJsonObject
@@ -158,7 +147,7 @@ int main(int argc, char *argv[])
                     }
                 };
 
-            if (jsonArray.size() > 1)
+             if (jsonArrayPoints.size() > 1)
                 return QHttpServerResponse
                 {
                     QJsonObject
@@ -167,7 +156,7 @@ int main(int argc, char *argv[])
                     }
                 };
 
-            if (jsonArray.first().isNull())
+            if (jsonArrayPoints.first().isNull())
                 return QHttpServerResponse
                 {
                     QJsonObject
@@ -176,14 +165,14 @@ int main(int argc, char *argv[])
                     }
                 };
 
-            for (const QJsonValueConstRef arrayValue : jsonArray.first().toArray())
+            for (const QJsonValueConstRef arrayValue : jsonArrayPoints.first().toArray())
             {
                 if (!arrayValue.isObject())
                     return QHttpServerResponse
                     {
                         QJsonObject
                         {
-                            {"Message", "Invalid data sent. A sub-object in array 'Y_Points' is not a proper JSON-object. Please send a valid JSON-Object."}
+                            {"Message", "Invalid data sent. A sub-object in array 'Points' is not a proper JSON-object. Please send a valid JSON-Object."}
                         }
                     };
 
@@ -198,139 +187,170 @@ int main(int argc, char *argv[])
                         }
                     };
 
-                if (!arrayObject.value("X_Points").isArray())
+                if (!arrayObject.value("Values").isArray())
                     return QHttpServerResponse
                     {
                         QJsonObject
                         {
-                            {"Message", "Invalid data sent. JSON-Key 'X_Points' of one sub-object in array 'Points' is not an array. Please send a valid JSON-Object."}
+                            {"Message", "Invalid data sent. JSON-Key 'Values' of one sub-object in array 'Points' is not an array. Please send a valid JSON-Object."}
                         }
                     };
 
-                if (!arrayObject.value("Y_Points").isArray())
+                if (arrayObject.isEmpty())
                     return QHttpServerResponse
                     {
                         QJsonObject
                         {
-                            {"Message", "Invalid data sent. JSON-Key 'Y_Points' of one sub-object in array 'Points' is not an array. Please send a valid JSON-Object."}
+                            {"Message", "Invalid data sent. JSON-Key 'Values' of one sub-object in array 'Points' is empty. Please send a valid JSON-Object."}
                         }
                     };
 
-                for (const QJsonValueConstRef subObject : arrayObject.value("Y_Points").toArray())
+                for (const QJsonValueConstRef subObject : arrayObject.value("Values").toArray())
                 {
                     if (!subObject.isDouble())
                         return QHttpServerResponse
                         {
                             QJsonObject
                             {
-                                {"Message", "Invalid data sent. A point in JSON-Key 'Y_Points' in one sub-object of 'Points' is not a double value. Please send a valid JSON-Object."}
+                                {"Message", "Invalid data sent. A point in JSON-Key 'Values' in one sub-object of 'Points' is not a double value. Please send a valid JSON-Object."}
                             }
                         };
                 }
+
+                if (arrayObject.value("Values").toArray().size() != jsonObject.value("Categories").toArray().size())
+                        return QHttpServerResponse
+                        {
+                            QJsonObject
+                            {
+                                {"Message", QString{"Invalid data sent. The 'Values'-array in JSON-Object with the JSON-Key 'Caption' : '%0' is not of the same size as the 'Categories'-Array. Please send a valid JSON-Object."}.arg(arrayObject.value("Caption").toString())}
+                            }
+                        };
             }
 
-            const QVector<QJsonObject> pointsObjects = [](const QJsonArray &pointsArray) -> QVector<QJsonObject>
+            for (const QJsonValueConstRef value : jsonObject.value("Categories").toArray())
             {
-                QVector<QJsonObject> pointsObjects;
+                if (!value.isString())
+                    return QHttpServerResponse
+                    {
+                        QJsonObject
+                        {
+                            {"Message", "Invalid data sent. A value in JSON-Key 'Values' in one sub-object of 'Categories' is not a string. Please send a valid JSON-Object."}
+                        }
+                    };
 
-                for (const QJsonValueConstRef value : pointsArray)
-                {
-                    for (const QJsonValueConstRef &arrayValue : value.toArray())
-                        pointsObjects << arrayValue.toObject();
-                }
+                if (value.toString().isEmpty())
+                    return QHttpServerResponse
+                    {
+                        QJsonObject
+                        {
+                            {"Message", "Invalid data sent. A value in JSON-Key 'Values' in one sub-object of 'Categories' is a empty string. Please send a valid JSON-Object."}
+                        }
+                    };
+            }
 
-                return pointsObjects;
+            const QVector<QJsonObject> pointsObjects {getJSONObjectsVectorFromJSONArray(jsonArrayPoints)};
 
-            }(jsonArray);
-
-            const QMap<QString, QPair<QVector<qreal>, QVector<qreal> > > captionToPoints = [](const QVector<QJsonObject> &yPointsObjects) -> QMap<QString, QPair<QVector<qreal>, QVector<qreal> > >
+            const QMap<QString, QVector<qreal> > captionToValues = [](const QVector<QJsonObject> &pointsObjects) -> QMap<QString, QVector<qreal> >
             {
-                QMap<QString, QPair<QVector<qreal>, QVector<qreal> > > captionToPoints;
+                QMap<QString, QVector<qreal> > captionToValues;
 
-                for (const QJsonObject &object : yPointsObjects)
+                for (const QJsonObject &object : pointsObjects)
                 {
                     const QString caption {object.value("Caption").toString()};
+                    const QVector<qreal> values {convertFromArrayToRealsVector(object.value("Values").toArray())};
 
-                    const QVector<qreal> xPoints {convertFromArrayToRealsVector(object.value("X_Points").toArray())};
-                    const QVector<qreal> yPoints {convertFromArrayToRealsVector(object.value("Y_Points").toArray())};
-
-                    captionToPoints.insert(caption, {xPoints, yPoints});
+                    captionToValues.insert(caption, values);
                 }
 
-                return captionToPoints;
+                return captionToValues;
 
             }(pointsObjects);
 
-            const QVector<qreal> generalXPointsRange = [](const qreal &xStart, const qreal &xEnd)
+            const QStringList categories = [](const QJsonArray &jsonArrayCategories) -> QStringList
             {
-                QVector<qreal> points;
-                points.resize(static_cast<int>(std::abs(xStart) + std::abs(xEnd)));
+                QStringList categories;
 
-                std::iota(points.begin(), points.end(), xStart);
-                return points;
+                for (const QJsonValueConstRef category : jsonArrayCategories)
+                    categories << category.toString();
 
-            }(xStart, xEnd);
+                return categories.toVector();
 
-            const qreal yStart = [](const QMap<QString, QPair<QVector<qreal>, QVector<qreal> > > &captionToPoints) -> qreal
+            }(jsonObject.value("Categories").toArray());
+
+            const qreal yStart = [](const QMap<QString, QVector<qreal> > &captionToValues) -> qreal
             {
-                QVector<qreal> allYPoints;
+                QVector<qreal> allValues;
 
-                for (const QString &caption : captionToPoints.keys())
-                    allYPoints << captionToPoints.value(caption).second;
+                for (const QString &caption : captionToValues.keys())
+                    allValues << captionToValues.value(caption);
 
-                if (allYPoints.size() > 1)
-                    return *std::min_element(allYPoints.begin(), allYPoints.end());
+                const qreal minValue {*std::min_element(allValues.begin(), allValues.end())};
+
+                if (allValues.isEmpty())
+                    return 0;
+
+                return minValue < 0 ? minValue : 0;
+
+            }(captionToValues);
+
+            const qreal yEnd = [](const QMap<QString, QVector<qreal> > &captionToValues) -> qreal
+            {
+                QVector<qreal> allValues;
+
+                for (const QString &caption : captionToValues.keys())
+                    allValues << captionToValues.value(caption);
+
+                if (allValues.size() > 1)
+                    return *std::max_element(allValues.begin(), allValues.end());
 
                 return 0;
 
-            }(captionToPoints);
-
-            const qreal yEnd = [](const QMap<QString, QPair<QVector<qreal>, QVector<qreal> > > &captionToPoints) -> qreal
-            {
-                QVector<qreal> allYPoints;
-
-                for (const QString &caption : captionToPoints.keys())
-                    allYPoints << captionToPoints.value(caption).second;
-
-                if (allYPoints.size() > 1)
-                    return *std::max_element(allYPoints.begin(), allYPoints.end());
-
-                return 0;
-
-            }(captionToPoints);
+            }(captionToValues);
 
             const QScopedPointer<QWidget>     chartWidget {new QWidget};
             const QScopedPointer<QChartView>  chartView   {new QChartView};
             const QScopedPointer<QChart>      chart       {new QChart};
             const QScopedPointer<QGridLayout> gridLayout  {new QGridLayout};
 
-            QValueAxis * const axisX {new QValueAxis};
-            axisX->setRange(xStart, xEnd);
-            axisX->setTickCount(static_cast<int>(axisX->max() + 1));
-            chart->addAxis(axisX, Qt::AlignBottom);
+            /* axisY und axisX Pointer dürfen nicht deleted
+             * werden, da das chart-objekt die Ownership übernimmt */
 
             QValueAxis * const axisY {new QValueAxis};
+            axisY->setTickType(QValueAxis::TickType::TicksFixed);
             axisY->setRange(yStart, yEnd);
-            axisY->setTickCount(static_cast<int>(axisY->max() + 1));
+
+            const qreal tickCount {static_cast<qreal>(yEnd + std::abs(yStart) + 1)};
+            axisY->setTickCount(static_cast<int>(tickCount) > (tickCount / 10) ? static_cast<int>(std::ceil(static_cast<int>(tickCount / 10) + 1)) : static_cast<int>(tickCount) + 1);
+
+            axisY->applyNiceNumbers();
+            axisY->setTruncateLabels(false);
             chart->addAxis(axisY, Qt::AlignLeft);
 
-            for (const QString &caption : captionToPoints.keys())
+            QBarCategoryAxis * const axisX {new QBarCategoryAxis};
+            axisX->append(categories);
+            chart->addAxis(axisX, Qt::AlignBottom);
+
+            for (const QString &caption : captionToValues.keys())
             {
-                const QVector<QPointF> coordinates {mergeCoordinates(captionToPoints.value(caption).first, captionToPoints.value(caption).second)};
+                /* series und barSet Pointer dürfen nicht deleted
+                 * werden, da das chart-objekt die Ownership übernimmt */
 
-                QLineSeries * const lineSeries {new QLineSeries {chart.data()}};
-                lineSeries->append(coordinates);
-                lineSeries->setColor(generateRandomQColor());
-                lineSeries->setName(caption);
+                QBarSeries * const series {new QBarSeries};
+                QBarSet    * const barSet {new QBarSet{caption}};
 
-                chart->addSeries(lineSeries);
+                for (const qreal &value : captionToValues.value(caption))
+                     barSet->append(value);
 
-                lineSeries->attachAxis(axisX);
-                lineSeries->attachAxis(axisY);
+                series->append(barSet);
+                chart->addSeries(series);
+
+                series->attachAxis(axisX);
+                series->attachAxis(axisY);
             }
 
             chartView->setChart(chart.data());
             chartView->setRenderHint(QPainter::Antialiasing);
+
             gridLayout->addWidget(chartView.data(), 0, 0);
             chartWidget->setLayout(gridLayout.data());
             chartWidget->resize(QSize{1024, 768});
@@ -343,22 +363,22 @@ int main(int argc, char *argv[])
             {
                 QJsonObject
                 {
-                    {"Link",    QString{"http://127.0.0.1:50001/line/result/%0"}.arg(uuid)},
+                    {"Link",    QString{"http://127.0.0.1:50001/bar/result/%0"}.arg(uuid)},
                     {"Message", "The provided url will expire in 24 hours."}
                 }
             };
         });
     });
 
-    httpServer->route("/line", QHttpServerRequest::Method::Get         |
-                               QHttpServerRequest::Method::Put     |
-                               QHttpServerRequest::Method::Head    |
-                               QHttpServerRequest::Method::Trace   |
-                               QHttpServerRequest::Method::Patch   |
-                               QHttpServerRequest::Method::Delete  |
-                               QHttpServerRequest::Method::Options |
-                               QHttpServerRequest::Method::Connect |
-                               QHttpServerRequest::Method::Unknown,
+    httpServer->route("/bar", QHttpServerRequest::Method::Get         |
+                              QHttpServerRequest::Method::Put     |
+                              QHttpServerRequest::Method::Head    |
+                              QHttpServerRequest::Method::Trace   |
+                              QHttpServerRequest::Method::Patch   |
+                              QHttpServerRequest::Method::Delete  |
+                              QHttpServerRequest::Method::Options |
+                              QHttpServerRequest::Method::Connect |
+                              QHttpServerRequest::Method::Unknown,
     [](const QHttpServerRequest &request) -> QFuture<QHttpServerResponse>
     {
         Q_UNUSED(request)
@@ -375,15 +395,15 @@ int main(int argc, char *argv[])
         });
     });
 
-    httpServer->route("/line/result/<arg>", QHttpServerRequest::Method::Get         |
-                                            QHttpServerRequest::Method::Put     |
-                                            QHttpServerRequest::Method::Head    |
-                                            QHttpServerRequest::Method::Trace   |
-                                            QHttpServerRequest::Method::Patch   |
-                                            QHttpServerRequest::Method::Delete  |
-                                            QHttpServerRequest::Method::Options |
-                                            QHttpServerRequest::Method::Connect |
-                                            QHttpServerRequest::Method::Unknown,
+    httpServer->route("/bar/result/<arg>", QHttpServerRequest::Method::Get         |
+                                           QHttpServerRequest::Method::Put     |
+                                           QHttpServerRequest::Method::Head    |
+                                           QHttpServerRequest::Method::Trace   |
+                                           QHttpServerRequest::Method::Patch   |
+                                           QHttpServerRequest::Method::Delete  |
+                                           QHttpServerRequest::Method::Options |
+                                           QHttpServerRequest::Method::Connect |
+                                           QHttpServerRequest::Method::Unknown,
     [](const QString &argument) -> QFuture<QHttpServerResponse>
     {
         static std::function<QHttpServerResponse(const QString &)> responseFunction = [](const QString &argument)
